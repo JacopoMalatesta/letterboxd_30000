@@ -10,11 +10,9 @@
 5. <b> Visualize </b> the output of the queries with R
 6. Build a Tableau <b> dashboard </b> 
 
-## Tools
-
-Python, PostreSQL, R and Tableau.
-
 ## Libraries
+
+### Python
 
 ```python
 
@@ -35,10 +33,25 @@ import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT 
 import sqlalchemy
 
+```
+
+### R
+
+```r
+
+library(odbc)
+library(DBI)
+library(tidyverse)
+library(plotly)
+library(DT)
+library(utf8)
+
 
 ```
 
+## Contributor
 
+<a href = "https://www.linkedin.com/in/jacopo-malatesta/"> Jacopo Malatesta </a> 
 
 ## Goals
 
