@@ -1,0 +1,980 @@
+---
+title: "Query and visualize the data"
+author: "Jacopo Malatesta"
+date: "2/13/2022"
+output:
+  html_document:
+    toc: true
+    theme: cerulean
+    highlight: kate
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px; padding: 20px;}
+</style>
+
+# Libraries
+
+```{r, message = FALSE, warning = FALSE}
+library(odbc)
+library(DBI)
+library(tidyverse)
+library(plotly)
+library(DT)
+library(utf8)
+
+```
+<br><br>
+
+# Connect to the database
+
+I'll use "PostgreSQL Unicode(x64)" as my driver and I'll load the username and password from environment variables.
+
+```{r}
+con <- dbConnect(odbc(),
+                 Driver   = "PostgreSQL Unicode(x64)",
+                 Server   = "localhost",
+                 Database = "mereghetti",
+                 UID      = Sys.getenv('postgres_username'),
+                 PWD      = Sys.getenv('postgres_psw'),
+                 Port     = 5432)
+
+```
+
+<br><br>
+
+# Query and visualize data
+
+<br>
+
+## Distribution of ratings
+
+```{sql connection = con, output.var = "all_ratings"}
+
+SELECT rating :: INTEGER,
+       COUNT(*) :: INTEGER,
+       ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts), 3) ratio
+FROM facts
+GROUP BY 1
+
+```
+
+
+```{r, fig.heigth = 7.5, fig.width = 9}
+p <- all_ratings %>% 
+  mutate(ratio = scales::percent(ratio)) %>% 
+  ggplot(aes(x = rating, y = count)) +
+  geom_col(fill = "skyblue") +
+  geom_text(aes(label = ratio), nudge_y = 230, size = 3.5) +
+  theme_classic() +
+  scale_x_continuous(breaks = c(1, 8)) +
+  scale_y_continuous(breaks = c(0, 3500, 7000)) +
+  labs(title = "Distribution of Mereghetti's ratings",
+       x = "Rating") +
+  theme(plot.title = element_text(size = 18),
+        line = element_blank(),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        axis.title.y = element_blank())
+
+ggplotly(p)
+
+```
+
+
+
+## 1. Frequency of four-star rated films over time
+
+<br>
+
+How has the number of four-star-rated films changed over time?
+
+```{sql connection = con, output.var = "four_star_by_year"}
+SELECT year,
+       COUNT(*) :: INTEGER,
+       STRING_AGG(title || ' (' || year || ')', ' | ') titles
+FROM facts
+JOIN info 
+USING(id)
+WHERE rating = 8
+GROUP BY 1
+ORDER BY 1
+
+```
+
+
+
+```{r}
+four_star_by_year <- four_star_by_year %>% mutate_if(is.character, utf8_encode)
+
+datatable(four_star_by_year, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+<br>
+
+```{r, fig.height = 6, fig.width = 9}
+p <- four_star_by_year %>% 
+  ggplot(aes(x = year, y = count)) +
+  geom_line(size = .75, colour = "sky blue") +
+  theme_classic() +
+  scale_x_continuous(n.breaks = 7) +
+  scale_y_continuous(n.breaks = 8) +
+  labs(title = "Frequency of four-star-rated films over time",
+       subtitle = "The 1950s were the heyday of cinema according to Mereghetti") +
+  theme(plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 12),
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_text(size = 10), 
+        line = element_blank())
+
+ggplotly(p)
+
+```
+<br>
+
+<div class = "blue">
+It looks like according to Mereghetti cinema peaked around the '50s and kept going downhill from there.
+</div>
+
+<br><br>
+
+## 2. Frequency of four-star rated films by decade
+
+<br>
+
+Let's investigate this further by counting the number of four-star-rated films after grouping by decade.
+
+```{sql connection = con, output.var = "four_star_by_decade"}
+
+SELECT CASE WHEN year >= 2020 THEN '2020s'
+			      WHEN year >= 2010 AND year < 2020 THEN '2010s'
+			      WHEN year >= 2000 AND year < 2010 THEN '2000s'
+			      WHEN year >= 1990 AND year < 2000 THEN '1990s'
+			      WHEN year >= 1980 AND year < 1990 THEN '1980s'
+			      WHEN year >= 1970 AND year < 1980 THEN '1970s'
+			      WHEN year >= 1960 AND year < 1970 THEN '1960s'
+			      WHEN year >= 1950 AND year < 1960 THEN '1950s'
+			      WHEN year >= 1940 AND year < 1950 THEN '1940s'
+			      WHEN year >= 1930 AND year < 1940 THEN '1930s'
+			      WHEN year >= 1920 AND year < 1930 THEN '1920s'
+			      WHEN year >= 1910 AND year < 1920 THEN '1910s'
+			      WHEN year >= 1900 AND year < 1910 THEN '1900s'
+			      WHEN year >= 1890 and year < 1900 THEN '1890s'
+			      ELSE 'Other' END AS decade,
+			      COUNT(*) :: INTEGER n_of_films,
+			      ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) percentage,
+			      STRING_AGG(title || ' (' || year || ')', ' | ') titles
+FROM facts
+JOIN info 
+USING(id)
+WHERE rating = 8
+GROUP BY 1
+ORDER BY 1
+
+```
+
+
+
+```{r}
+four_star_by_decade <- four_star_by_decade %>% mutate_if(is.character, utf8_encode)
+
+datatable(four_star_by_decade, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+<br>
+
+```{r, fig.heigth = 7.5, fig.width = 9}
+p <- four_star_by_decade %>% 
+  mutate(label = scales::percent(percentage)) %>% 
+  ggplot(aes(x = decade, y = n_of_films)) +
+  geom_col(fill = "sky blue") +
+  geom_text(aes(label = label), nudge_y = 3.5, size = 3.5) +
+  theme_classic() +
+  labs(title = "Frequency of four-star rated films by decade",
+       y = "Absolute frequency") +
+  theme(plot.title = element_text(size = 18),
+        axis.title.x = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.ticks = element_blank(), 
+        line = element_blank())
+
+ggplotly(p)
+
+
+```
+<br>
+
+<div class = "blue">
+
+This bar chart confirms our insight: the 1950s-1960s period was the best one for movies in Mereghetti's opinion.
+
+</div>
+
+
+
+<br><br>
+
+  
+## 3. Frequency of four-star rated films by country
+
+<br>
+
+What countries have the most 4/4 rated films in the database? 
+
+In this case we need to split and unnest the 'country' column as it often contains multiple values separated by a semi-colon (a film can be co-produced by more than one country). As a result the percentages add up to more than 100%. For visualization's sake, we'll limit the results to the top 20 countries by frequency.
+
+```{sql connection = con, output.var = "four_star_by_country"}
+
+SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country,
+                 COUNT(*)  :: INTEGER n_of_films,
+                 ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) ratio
+          FROM info
+          JOIN facts 
+          USING(id)
+          WHERE rating = 8
+          GROUP BY 1
+          ORDER BY 2 DESC
+          LIMIT 20
+
+```
+
+
+```{r}
+four_star_by_country <- four_star_by_country %>% mutate_if(is.character, utf8_encode)
+
+datatable(four_star_by_country, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+<br>
+
+```{r, fig.height = 7, fig.width = 9}
+p <- four_star_by_country %>% 
+  mutate(label = scales::percent(ratio),
+         country = fct_reorder(country, n_of_films)) %>% 
+  ggplot(aes(x = country, y = n_of_films)) +
+  geom_col(aes(fill = ratio)) +
+  geom_text(aes(label = label), size = 3.25, nudge_y = 13.5) +
+  coord_flip() +
+  theme_classic() +
+  scale_fill_gradient(low = "light blue", high = "dark blue", guide = 'none') +
+  labs(title = "Frequency of four star rated films by country",
+       y = "Absolute frequency") +
+  theme(legend.position = "None", 
+        plot.title = element_text(size = 18), 
+        plot.subtitle = element_text(size = 12),
+        axis.text = element_text(size = 10),
+        axis.title.y = element_blank(),
+        axis.ticks = element_blank(),
+        line = element_blank()) 
+
+ggplotly(p)
+
+```
+<br>
+
+<div class = "blue">
+
+The US were involved in about 4 four-rated films out of 10
+
+</div>
+
+<br><br>
+
+
+## 4. Top 5 countries by n. of four star rated films over time
+
+<br>
+
+How did the previous frequencies evolve over time? 
+
+To answer this question we'll focus on the five countries with the most 4/4 films in the database: the US, France, Italy, Japan and the UK. Again, we'll need to split and unnest the country column. We'll also use the dense_rank function together with a window function to select those top 5 countries.
+
+```{sql connection = con, output.var = "top_five_countries"}
+
+WITH CTE_ONE AS (
+                            SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country, 
+                                   DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) rank
+                            FROM info
+                            JOIN facts
+                            USING(id)
+                            WHERE rating = 8
+                            GROUP BY 1
+                            ),
+    CTE_TWO AS (
+                            SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country,
+                                   year,
+                                   title
+                            FROM info
+                            JOIN facts
+                            USING(id)
+                            WHERE rating = 8
+                            )
+                                   
+SELECT country, 
+       year, 
+       title,
+       CASE WHEN country = 'USA' THEN TRUE ELSE FALSE END AS is_usa
+FROM CTE_TWO
+WHERE country IN (SELECT country FROM CTE_ONE WHERE rank < 6)
+ORDER BY 1, 2
+
+```
+
+
+```{r}
+
+top_five_countries <- top_five_countries %>% mutate_if(is.character, utf8_encode)
+
+
+datatable(top_five_countries, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+
+```{r, fig.cap = "Warning: the number of bins is not optimal; the values in this visualization are not entirely accurate", fig.height = 7, fig.width = 10}
+p <- top_five_countries %>% 
+  ggplot(aes(x = year, colour = country)) +
+  geom_freqpoly(aes(linetype = is_usa), size = .5, binwidth = 2) +
+  scale_linetype_manual(values = c("solid", "dashed"), guide = "none") +
+  scale_x_continuous(n.breaks = 10) +
+  theme_classic() +
+  labs(title = "Frequency of four rated films by country across time") +
+  theme(plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 12),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.ticks = element_blank(),
+        line = element_blank()) +
+  scale_colour_brewer(palette = "Set1")
+
+ggplotly(p)
+
+```
+<br>
+
+<div class = "blue">
+
+The US, France, Italy and Japan all reached their peak during the 1950s-1970s period
+
+</div>
+
+<br><br>
+
+## 5. Frequency of four-star rated films by genre
+
+<br>
+
+What are the genres with the highest number of four-star-rated films? 
+
+As a film can belong to more than one genre, we'll split and unnest the 'genre' column the same way we did for the 'country' column. Again, the percentages will add up to more than 100%.
+
+```{sql connection = con, output.var = "four_rated_by_genre"}
+
+SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) genre,
+                 COUNT(*) :: INTEGER n_of_films,
+                 ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) ratio 
+          FROM info
+          JOIN facts
+          USING (id)
+          WHERE rating = 8
+          GROUP BY 1
+          ORDER BY 2 DESC
+
+
+```
+
+
+```{r}
+
+datatable(four_rated_by_genre, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+
+
+```{r, fig.width = 10}
+p <- four_rated_by_genre %>% 
+  mutate(label = scales::percent(ratio),
+         genre = fct_reorder(genre, n_of_films)) %>% 
+  ggplot(aes(x = genre, y = n_of_films, fill = ratio)) +
+  geom_col() +
+  geom_text(aes(label = label), size = 3.25, nudge_y = 20) +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "Frequency of four-star rated films by genre",
+       y = "Absolute frequency") +
+  theme(plot.title = element_text(size = 18),
+        axis.title.y = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.ticks = element_blank(),
+        legend.position = "None", 
+        line = element_blank()) +
+  scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none")
+
+ggplotly(p)
+
+```
+<br>
+
+<div class = "blue">
+
+7 four-star-rated movies out of 10 are dramas
+
+</div>
+
+
+<br><br>
+
+## 6. Frequency of four-star rated films by genre over time
+
+<br>
+
+Similarly to what we did with the 'country' variable, we are going to visualize the evolution across time of the 5 genres with the most 4-rated films. To change things up, this time we are using a LIMIT statement rather than a window function.
+
+```{sql connection = con, output.var = "top_five_genres"}
+
+WITH CTE_ONE AS (SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
+                                  COUNT(*)
+                           FROM info
+                           JOIN facts
+                           USING (id)
+                           WHERE rating = 8
+                           GROUP BY 1 
+                           ORDER BY 2 DESC
+                           LIMIT 5),
+          
+     CTE_TWO AS (SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
+                        year
+                 FROM info
+                 JOIN facts
+                 USING (id)
+                 WHERE rating = 8)
+
+SELECT unnested_genre AS genre, 
+       year,
+       CASE WHEN unnested_genre = 'Drama' THEN TRUE ELSE FALSE END AS is_drama
+FROM CTE_TWO
+WHERE unnested_genre IN (SELECT unnested_genre FROM CTE_ONE)
+
+```
+
+
+
+```{r, fig.cap = "Warning: the number of bins is not optimal; the values in this visualization are not entirely accurate", fig.height = 7, fig.width = 10}
+
+p <- top_five_genres %>% 
+      ggplot(aes(x = year, colour = genre)) +
+      geom_freqpoly(aes(linetype = is_drama), size = .5, binwidth = 2) +
+      scale_linetype_manual(values = c("dashed", "solid"), guide = "none") +
+      scale_x_continuous(n.breaks = 10) +
+      theme_classic() +
+      labs(title = "N. of four-star rated films by genre across time",
+           subtitle = "") +
+      theme(plot.title = element_text(size = 18),
+            plot.subtitle = element_text(size = 10),
+            axis.title = element_blank(),
+            axis.text = element_text(size = 10), 
+            line = element_blank()) +
+      scale_colour_brewer(palette = "Set1")
+
+ggplotly(p)
+
+```
+<br>
+
+<div class = "blue">
+
+Comedies, thrillers and crime movies reached their peak during the 1940s while dramas and comedies did so during the 1950s.
+
+</div>
+
+
+
+<br><br>
+
+## 7. Directors with most four-star-rated films
+
+<br>
+
+Who are the directors with the highest number of 4/4 rated films?
+
+Once again splitting and unnesting will come to our rescue. 
+
+```{sql connection = con, output.var = "four_rated_by_director"}
+
+SELECT UNNEST(STRING_TO_ARRAY(director, ';')) director,
+       COUNT(*) :: INTEGER,
+       STRING_AGG(title || ' (' || year || ')', ' | ') titles
+FROM facts
+JOIN people
+USING (id)
+JOIN info
+USING (id)
+WHERE rating = 8
+GROUP BY 1 
+ORDER BY 2 DESC
+LIMIT 25
+
+```
+
+
+```{r}
+
+four_rated_by_director <- four_rated_by_director %>% mutate_if(is.character, utf8_encode)
+
+datatable(four_rated_by_director, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+  
+```
+  
+```{r, fig.height = 7, fig.width = 10}
+p <- four_rated_by_director %>% 
+  mutate(director = fct_reorder(director, count)) %>% 
+  ggplot(aes(x = count, 
+             y = director, 
+             fill = count)) +
+  geom_col() +
+  theme_classic() +
+  scale_x_continuous(n.breaks = c(0, 5, 10)) +
+  scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none") +
+  labs(title = "Directors by n. of four-star-rated films") +
+  theme(plot.title = element_text(size = 18),
+        legend.position = "None",
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        line = element_blank())
+
+ggplotly(p)
+
+```
+<br>
+
+<div class = "blue">
+
+All directors except Allen, Lynch, Scorsese and Eastwood have passed away
+
+</div>
+
+
+<br><br>
+  
+
+## 8. Directors with most four-star-rated films by decade
+
+<br>
+
+Let's find out who the director with most 4/4 films in each decade is.
+
+```{sql connection=con, output.var = "directors_by_decade"}
+
+WITH CTE_ONE AS (SELECT CASE WHEN year >= 2020 THEN '2020s'
+			                       WHEN year >= 2010 AND year < 2020 THEN '2010s'
+			                       WHEN year >= 2000 AND year < 2010 THEN '2000s'
+		                         WHEN year >= 1990 AND year < 2000 THEN '1990s'
+			                       WHEN year >= 1980 AND year < 1990 THEN '1980s'
+			                       WHEN year >= 1970 AND year < 1980 THEN '1970s'
+			                       WHEN year >= 1960 AND year < 1970 THEN '1960s'
+			                       WHEN year >= 1950 AND year < 1960 THEN '1950s'
+			                       WHEN year >= 1940 AND year < 1950 THEN '1940s'
+			                       WHEN year >= 1930 AND year < 1940 THEN '1930s'
+			                       WHEN year >= 1920 AND year < 1930 THEN '1920s'
+			                       WHEN year >= 1910 AND year < 1920 THEN '1910s'
+                    		     WHEN year >= 1900 AND year < 1910 THEN '1900s'
+			                       WHEN year >= 1890 and year < 1900 THEN '1890s'
+			                       ELSE 'Other' END AS decade,
+		                         UNNEST(STRING_TO_ARRAY(director, ';')) director,
+		                         COUNT(*) n_of_films,
+		                         STRING_AGG(title || ' (' || year || ')', ' | ') titles
+		             FROM facts
+		             JOIN people 
+		             USING(id)
+		             JOIN info
+		             USING (id)
+                 WHERE rating = 8
+                 GROUP BY 1, 2),
+
+      CTE_TWO AS (SELECT decade, MAX(n_of_films) n_of_films FROM CTE_ONE GROUP BY 1)
+
+SELECT CTE_ONE.decade, CTE_ONE.director, CTE_ONE.n_of_films :: INTEGER, CTE_ONE.titles
+FROM CTE_ONE
+JOIN CTE_TWO
+ON CTE_ONE.decade = CTE_TWO.decade AND CTE_ONE.n_of_films = CTE_TWO.n_of_films
+ORDER BY CTE_ONE.decade
+
+```
+
+
+```{r}
+
+directors_by_decade <- directors_by_decade %>% mutate_if(is.character, utf8_encode)
+
+datatable(directors_by_decade, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+
+
+<br><br>
+
+## Directors with most four-star-rated films by genre
+
+<br>
+
+Similarly to what we did with 'decade', we are going to find out who the directors with most 4/4 films are for each single genre. To limit the rows in the final output table we are focusing on genres with a count equal to or greater than two.
+
+```{sql connection = con, output.var = "top_directors_by_genre"}
+
+WITH CTE_ONE AS (
+                           SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
+                                  UNNEST(STRING_TO_ARRAY(director, ';')) unnested_director,
+                                  COUNT(*) :: INTEGER,
+                                  STRING_AGG(title || ' (' || year || ')', ' | ') titles
+                           FROM facts
+                           JOIN people USING(id)
+                           JOIN info USING(id)
+                           WHERE rating = 8
+                           GROUP BY 1, 2
+                           ),
+                           
+    CTE_TWO AS (SELECT unnested_genre,
+                       MAX(count) n_of_films
+                 FROM CTE_ONE
+                 WHERE unnested_director IS NOT NULL
+                 GROUP BY 1
+                 HAVING MAX(count) > 1)
+                            
+SELECT CTE_ONE.unnested_genre genre,
+       CTE_ONE.unnested_director director,
+       CTE_TWO.n_of_films,
+       CTE_ONE.titles
+FROM CTE_ONE
+JOIN CTE_TWO
+ON CTE_ONE.unnested_genre = CTE_TWO.unnested_genre AND CTE_ONE.count = CTE_TWO.n_of_films
+ORDER BY 1
+
+```
+
+
+```{r}
+
+top_directors_by_genre <- top_directors_by_genre %>% mutate_if(is.character, utf8_encode)
+
+datatable(top_directors_by_genre, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+<br><br>
+
+
+## Actors with most film credits in four-star-rated-films
+
+<br>
+
+```{sql connection=con, output.var = "top_actors"}
+
+SELECT UNNEST(STRING_TO_ARRAY(actors, ';')) actor,
+       COUNT(*) :: INTEGER,
+       STRING_AGG(title || ' (' || year || ')', ' | ') titles
+FROM facts
+JOIN people
+USING(id)
+JOIN info
+USING(id)
+WHERE rating = 8
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 25
+
+```
+
+
+
+```{r}
+
+top_actors <- top_actors
+
+datatable(top_actors, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+
+```{r, fig.width = 10}
+p <- top_actors %>% 
+  mutate(actor = fct_reorder(actor, count)) %>% 
+  ggplot(aes(x = count, 
+             y = actor)) +
+  geom_col(aes(fill = count)) +
+  #geom_text(aes(label = count), size = 3.25, nudge_x = .5) +
+  theme_classic() +
+  scale_x_continuous(breaks = c(0, 8, 15)) +
+  scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none") +
+  labs(title = "Actors with most film credits in four-star-rated films",
+       subtitle = "Bess Flowers was known as 'The Queen of Hollywood extras'") +
+  theme(plot.title = element_text(size = 18),
+        legend.position = "None",
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        line = element_blank())
+
+ggplotly(p)
+
+
+```
+<br>
+
+<div class = "blue">
+If some of these names sound obscure it's because they mostly worked as extras.
+</div>
+
+<br><br>
+
+
+## . Artists with most film credits in four-star-rated films
+
+<br>
+
+By "artist" I mean anybody: directors, producers, writers, composers, editors etc. 
+
+To calculate this, we'll unpivot all columns referring to people.
+
+```{sql connection = con, output.var = "top_artists"}
+
+WITH CTE AS (
+SELECT UNNEST(ARRAY[director, actors, producers, writer, editor, cinematographer, production_designer, 
+                    set_decorator, composer, sound, costumes, make_up]) AS artists
+FROM facts
+JOIN people
+USING(id)
+WHERE rating = 8)
+
+SELECT UNNEST(STRING_TO_ARRAY(artists, ';')) artist, COUNT(*) :: INTEGER
+FROM CTE
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 25
+
+```
+
+
+```{r}
+
+top_artists <- top_artists %>% mutate_if(is.character, utf8_encode)
+
+datatable(top_artists, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+
+```{r, fig.width = 10}
+p <- top_artists %>% 
+  mutate(artist = fct_reorder(artist, count)) %>% 
+  mutate_if(is.character, utf8_encode) %>% 
+  ggplot(aes(x = artist, 
+             y = count, 
+             fill = count)) +
+  geom_col() +
+  coord_flip() +
+  theme_classic() +
+  labs(title = "People with most credits in four-star-rated films",
+       subtitle = "Chaplin wrote, directed, produced, edited, scored and starred in his movies") +
+  theme(legend.position = "None",
+        plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 10),
+        axis.title = element_blank(),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10),
+        axis.ticks = element_blank(),
+        line = element_blank()) +
+  scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none") +
+  scale_y_continuous(n.breaks = 3)
+
+ggplotly(p)
+
+```
+
+<br><br>
+
+## Composers with most film credits in four-star-rated films
+
+<br>
+
+Is Ennio Morricone going to top the list of composers with most credits in 4/4 films?
+
+```{sql connection = con, output.var = "top_composers"}
+
+SELECT UNNEST(STRING_TO_ARRAY(composer, ';')) composer,
+       COUNT(*) :: INTEGER,
+       STRING_AGG(title || ' (' || year || ')', ' | ') titles
+FROM facts
+JOIN people
+USING(id)
+JOIN info
+USING(id)
+WHERE rating = 8
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 20
+
+```
+
+
+```{r}
+top_composers <- top_composers %>% mutate_if(is.character, utf8_encode)
+
+datatable(top_composers, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+
+```{r, fig.width = 10}
+p <- top_composers %>% 
+  mutate(composer = fct_reorder(composer, count)) %>% 
+  ggplot(aes(x = count, 
+             y = composer, 
+             fill = count)) +
+  geom_col() +
+  theme_classic() +
+  scale_x_continuous(breaks = c(0, 4, 8)) +
+  labs(title = "Composers with most film credits in four-star-rated films",
+       subtitle = "Nino Rota scored most of Federico Fellini's films") +
+  theme(plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 10),
+        legend.position = "None",
+        axis.title = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        line = element_blank()) +
+  scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none")
+
+
+ggplotly(p)
+
+```
+<div class="blue">
+
+These aren't necessarily Paolo Mereghetti's favorite composers. They're simply the composers who show up most frequenly among the films he awarded his highest score.
+
+</div>
+
+<br><br>
+
+## 10. Average runtime over time
+
+<br>
+
+Have films got longer over time?
+
+```{sql connection = con, output.var = "avg_runtime"}
+
+SELECT year, 
+       ROUND(AVG(runtime) :: NUMERIC, 2) average_runtime 
+FROM facts 
+GROUP BY 1 
+ORDER BY 1
+
+```
+
+
+```{r}
+
+avg_runtime <- avg_runtime %>% mutate_if(is.character, utf8_encode)
+
+datatable(avg_runtime, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+
+```
+
+```{r, fig.width = 10}
+p <- avg_runtime %>% 
+  ggplot(aes(x = year, y = average_runtime)) +
+  geom_line(color = "sky blue", size = .75) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 10) +
+  theme_classic() +
+  labs(title = "Average film runtime by year",
+       subtitle = "There seems to have been a sudden spike in average runtime in recent years",
+       y = "minutes") +
+  theme(plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size = 10), 
+        line = element_blank())
+
+ggplotly(p)
+
+```
+<br>
+
+
+<div class = "blue">
+
+There has been a sudden spike in the average runtime these last three years.
+
+</div>
+
+
+```{sql connection = con, output.var = "mydataframe"}
+
+WITH CTE_ONE AS (SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
+                        UNNEST(STRING_TO_ARRAY(director, ';')) unnested_director,
+                        COUNT(*) :: INTEGER,
+                        STRING_AGG(title || ' (' || year || ')', ' | ') titles
+                 FROM facts
+                 JOIN people USING(id)
+                 JOIN info USING(id)
+                 WHERE rating = 8
+                 GROUP BY 1, 2
+                           ),
+                           
+    CTE_TWO AS (SELECT unnested_genre,
+                       MAX(count) n_of_films
+                FROM CTE_ONE
+                WHERE unnested_director IS NOT NULL
+                GROUP BY 1
+                HAVING MAX(count) > 1)
+                            
+SELECT CTE_ONE.unnested_genre genre,
+       CTE_ONE.unnested_director director,
+       CTE_TWO.n_of_films,
+       CTE_ONE.titles
+FROM CTE_ONE
+JOIN CTE_TWO
+ON CTE_ONE.unnested_genre = CTE_TWO.unnested_genre AND CTE_ONE.count = CTE_TWO.n_of_films
+ORDER BY 1
+
+```
+
+
+```{sql connection = con, output.var = "rating_vs_runtime"}
+
+SELECT rating :: INTEGER,
+       AVG(runtime) avg_runtime
+FROM facts
+GROUP BY 1
+
+```
+
+
+```{r}
+
+p <- rating_vs_runtime %>% 
+  ggplot(aes(x = rating, y = avg_runtime, group = avg_runtime)) +
+  geom_boxplot(colour = "sky blue") +
+  theme_classic() +
+  labs(title = "Is there a correlation between ratings and average runtime?", 
+       y = "Average runtime by rating",
+       x = "Rating") +
+  theme(plot.title = element_text(size = 18),
+        line = element_blank()) 
+
+ggplotly(p)
+```
+
+
+
