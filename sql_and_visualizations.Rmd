@@ -26,6 +26,7 @@ library(tidyverse)
 library(plotly)
 library(DT)
 library(utf8)
+library(mapdata)
 
 ```
 <br><br>
@@ -51,6 +52,115 @@ con <- dbConnect(odbc(),
 
 <br>
 
+## Countries by number of films in the database
+
+What countries have produced the most films in the database?
+
+```{sql connection = con, output.var = "all_countries"}
+
+SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country,
+       COUNT(*) :: INTEGER "Number of films",
+       COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM info) "Ratio"
+
+FROM info
+GROUP BY 1
+ORDER BY 2 DESC
+
+```
+
+```{r}
+datatable(all_countries, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+```
+```{r, fig.width = 10, fig.height = 10}
+world <- map_data("world")
+
+world <- world %>% 
+         rename(Country = region) %>% 
+         mutate(Country = if_else(Country == "Russia", "Russian Federation", Country)) %>% 
+         left_join(all_countries, by = c('Country' = 'country'))
+                   
+
+p <- world %>% 
+  ggplot(aes(x = long, y = lat, group = group, label = Country , fill = `Number of films`)) +
+  geom_polygon(color = "black", size = .1) +
+  coord_fixed(1.3) +
+  theme_classic() +
+  scale_fill_gradient(low = "light blue", high = "dark blue", na.value = "light grey", guide = "none") +
+  labs(title = "Countries by n.of films in the database") +
+  theme(line = element_blank(),
+        plot.title = element_text(size = 18),
+        axis.title = element_blank(),
+        axis.text = element_blank()) 
+
+ggplotly(p)
+
+```
+<div class = "blue">
+
+About 82% of the films in the database had either an American, French or Italian production. This result can be chalked up to: a) Hollywood's dominance of film industry; b) Mereghetti's strong interest in French culture; c) Mereghetti's Italian nationality.
+
+</div>
+
+<br><br>
+
+## 14. Average runtime over time
+
+<br>
+
+Have films got longer over time?
+
+```{sql connection = con, output.var = "avg_runtime"}
+
+SELECT year, 
+       ROUND(AVG(runtime) :: NUMERIC, 2) average_runtime 
+FROM facts 
+GROUP BY 1 
+ORDER BY 1
+
+```
+
+
+```{r}
+
+avg_runtime <- avg_runtime %>% mutate_if(is.character, utf8_encode)
+
+datatable(avg_runtime, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+
+
+```
+
+```{r, fig.width = 10}
+p <- avg_runtime %>% 
+  ggplot(aes(x = year, y = average_runtime)) +
+  geom_line(color = "sky blue", size = .75) +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_continuous(n.breaks = 10) +
+  theme_classic() +
+  labs(title = "Average film runtime by year",
+       subtitle = "There seems to have been a sudden spike in average runtime in recent years",
+       y = "minutes") +
+  theme(plot.title = element_text(size = 18),
+        plot.subtitle = element_text(size = 10),
+        axis.title.x = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x = element_text(size = 10), 
+        line = element_blank())
+
+ggplotly(p)
+
+```
+<br>
+
+
+<div class = "blue">
+
+There has been a sudden spike in the average runtime these last three years.
+
+</div>
+
 ## 1. Frequency distribution of ratings
 
 <br>
@@ -59,9 +169,9 @@ How difficult is it for a film to receive the highest rating from Paolo Mereghet
 
 ```{sql connection = con, output.var = "all_ratings"}
 
-SELECT rating :: INTEGER,
-       COUNT(*) :: INTEGER,
-       ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts), 3) ratio
+SELECT rating :: INTEGER "Rating",
+       COUNT(*) :: INTEGER "Number of films",
+       ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts), 3) "Ratio"
 FROM facts
 GROUP BY 1
 
@@ -70,10 +180,10 @@ GROUP BY 1
 
 ```{r, fig.heigth = 7.5, fig.width = 9}
 p <- all_ratings %>% 
-  mutate(ratio = scales::percent(ratio)) %>% 
-  ggplot(aes(x = rating, y = count)) +
+  mutate(Ratio = scales::percent(Ratio)) %>% 
+  ggplot(aes(x = Rating, y = `Number of films`)) +
   geom_col(fill = "skyblue") +
-  geom_text(aes(label = ratio), nudge_y = 230, size = 3.5) +
+  geom_text(aes(label = Ratio), nudge_y = 230, size = 3.5) +
   theme_classic() +
   scale_x_continuous(breaks = c(1, 8)) +
   scale_y_continuous(breaks = c(0, 3500, 7000)) +
@@ -98,6 +208,7 @@ About 60% of films fall into the lower half of Mereghetti's rating spectrum and 
 
 <br><br>
 
+
 ## 2. Frequency of four-star rated films over time
 
 <br>
@@ -105,9 +216,9 @@ About 60% of films fall into the lower half of Mereghetti's rating spectrum and 
 How has the number of four-star-rated films changed over time?
 
 ```{sql connection = con, output.var = "four_star_by_year"}
-SELECT year,
-       COUNT(*) :: INTEGER,
-       STRING_AGG(title || ' (' || year || ')', ' | ') titles
+SELECT year "Year",
+       COUNT(*) :: INTEGER "Number of films",
+       STRING_AGG(title || ' (' || year || ')', ' | ') Titles
 FROM facts
 JOIN info 
 USING(id)
@@ -129,7 +240,7 @@ datatable(four_star_by_year, rownames = FALSE, filter="top", options = list(page
 
 ```{r, fig.height = 6, fig.width = 9}
 p <- four_star_by_year %>% 
-  ggplot(aes(x = year, y = count)) +
+  ggplot(aes(x = Year, y = `Number of films`)) +
   geom_line(size = .75, colour = "sky blue") +
   theme_classic() +
   scale_x_continuous(n.breaks = 7) +
@@ -176,10 +287,10 @@ SELECT CASE WHEN year >= 2020 THEN '2020s'
             WHEN year >= 1910 AND year < 1920 THEN '1910s'
             WHEN year >= 1900 AND year < 1910 THEN '1900s'
             WHEN year >= 1890 and year < 1900 THEN '1890s'
-            ELSE 'Other' END AS decade,
-        COUNT(*) :: INTEGER n_of_films,
-        ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) percentage,
-        STRING_AGG(title || ' (' || year || ')', ' | ') titles
+            ELSE 'Other' END AS "Decade",
+        COUNT(*) :: INTEGER "Number of films",
+        ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) "Ratio",
+        STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
 FROM facts
 JOIN info 
 USING(id)
@@ -194,15 +305,15 @@ ORDER BY 1
 ```{r}
 four_star_by_decade <- four_star_by_decade %>% mutate_if(is.character, utf8_encode)
 
-datatable(four_star_by_decade, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
+datatable(four_star_by_decade, rownames = FALSE, filter="top", options = list(pageLength = 3, scrollX=T))
 
 ```
 <br>
 
 ```{r, fig.heigth = 7.5, fig.width = 9}
 p <- four_star_by_decade %>% 
-  mutate(label = scales::percent(percentage)) %>% 
-  ggplot(aes(x = decade, y = n_of_films)) +
+  mutate(label = scales::percent(Ratio)) %>% 
+  ggplot(aes(x = Decade, y = `Number of films`)) +
   geom_col(fill = "sky blue") +
   geom_text(aes(label = label), nudge_y = 3.5, size = 3.5) +
   theme_classic() +
@@ -241,9 +352,9 @@ In this case we need to split and unnest the 'country' column as it often contai
 
 ```{sql connection = con, output.var = "four_star_by_country"}
 
-SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country,
-       COUNT(*)  :: INTEGER n_of_films,
-       ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) ratio
+SELECT UNNEST(STRING_TO_ARRAY(country, ';')) "Country",
+       COUNT(*)  :: INTEGER "Number of films",
+       ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) "Ratio"
 FROM info
 JOIN facts 
 USING(id)
@@ -265,11 +376,11 @@ datatable(four_star_by_country, rownames = FALSE, filter="top", options = list(p
 
 ```{r, fig.height = 7, fig.width = 9}
 p <- four_star_by_country %>% 
-  mutate(label = scales::percent(ratio),
-         country = fct_reorder(country, n_of_films)) %>% 
-  ggplot(aes(x = country, y = n_of_films)) +
-  geom_col(aes(fill = ratio)) +
-  geom_text(aes(label = label), size = 3.25, nudge_y = 13.5) +
+  mutate(label = scales::percent(Ratio),
+         Country = fct_reorder(Country, `Number of films`)) %>% 
+  ggplot(aes(x = Country, y = `Number of films`)) +
+  geom_col(aes(fill = Ratio)) +
+  geom_text(aes(label = label), size = 3.25, nudge_y = 13) +
   coord_flip() +
   theme_classic() +
   scale_fill_gradient(low = "light blue", high = "dark blue", guide = 'none') +
@@ -386,9 +497,9 @@ As a film can belong to more than one genre, we'll split and unnest the 'genre' 
 
 ```{sql connection = con, output.var = "four_rated_by_genre"}
 
-SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) genre,
-                 COUNT(*) :: INTEGER n_of_films,
-                 ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) ratio 
+SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) "Genre",
+                 COUNT(*) :: INTEGER "Number of films",
+                 ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) "Ratio" 
           FROM info
           JOIN facts
           USING (id)
@@ -409,11 +520,11 @@ datatable(four_rated_by_genre, rownames = FALSE, filter="top", options = list(pa
 
 ```{r, fig.width = 10}
 p <- four_rated_by_genre %>% 
-  mutate(label = scales::percent(ratio),
-         genre = fct_reorder(genre, n_of_films)) %>% 
-  ggplot(aes(x = genre, y = n_of_films, fill = ratio)) +
+  mutate(label = scales::percent(Ratio),
+         Genre = fct_reorder(Genre, `Number of films`)) %>% 
+  ggplot(aes(x = Genre, y = `Number of films`, fill = Ratio)) +
   geom_col() +
-  geom_text(aes(label = label), size = 3.25, nudge_y = 20) +
+  geom_text(aes(label = label), size = 3.25, nudge_x = -.1, nudge_y = 23) +
   coord_flip() +
   theme_classic() +
   labs(title = "Frequency of four-star rated films by genre",
@@ -506,6 +617,53 @@ Comedies, thrillers and crime movies reached their peak during the 1940s while d
 
 
 <br><br>
+
+# Most common country-genre combinations?
+
+What are the most common country-genre combinations with rating = 8?
+
+```{sql connection=con, output.var = "country_genre"}
+
+WITH CTE AS ( SELECT UNNEST(STRING_TO_ARRAY(country, ';')) "Country",
+                     UNNEST(STRING_TO_ARRAY(genre, ';')) "Genre",
+                     COUNT(*),
+                     STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
+FROM info
+JOIN facts USING (id)
+WHERE rating = 8
+GROUP BY 1, 2
+ORDER BY 3 DESC )
+
+SELECT "Country", "Genre", count :: INTEGER "Number of films", "Titles"
+FROM CTE
+WHERE "Country" IS NOT NULL AND "Genre" IS NOT NULL
+LIMIT 30
+
+```
+
+```{r}
+country_genre <- country_genre %>% mutate_if(is.character, utf8_encode)
+
+datatable(country_genre, rownames = FALSE, filter="top", options = list(pageLength = 1, scrollX=T))
+```
+
+
+
+```{r, fig.width = 9, fig.height = 7}
+p <- country_genre %>% 
+  ggplot(aes(x = Country, y = Genre, fill = `Number of films`)) +
+  geom_tile() +
+  scale_fill_gradient(low = "light blue", high = "dark blue", na.value = "white") +
+  theme_classic() +
+  labs(title = "Most common country-genre combinations for four-star rated films") +
+  theme(axis.title = element_blank(),
+        line = element_blank(),
+        plot.title = element_text(size = 18),
+        axis.text = element_text(size = 10))
+
+ggplotly(p)
+
+```
 
 ## 8. Directors with most four-star-rated films
 
@@ -867,65 +1025,6 @@ ggplotly(p)
 <br><br>
 
 
-
-## 14. Average runtime over time
-
-<br>
-
-Have films got longer over time?
-
-```{sql connection = con, output.var = "avg_runtime"}
-
-SELECT year, 
-       ROUND(AVG(runtime) :: NUMERIC, 2) average_runtime 
-FROM facts 
-GROUP BY 1 
-ORDER BY 1
-
-```
-
-
-```{r}
-
-avg_runtime <- avg_runtime %>% mutate_if(is.character, utf8_encode)
-
-datatable(avg_runtime, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
-
-
-```
-
-```{r, fig.width = 10}
-p <- avg_runtime %>% 
-  ggplot(aes(x = year, y = average_runtime)) +
-  geom_line(color = "sky blue", size = .75) +
-  scale_x_continuous(n.breaks = 10) +
-  scale_y_continuous(n.breaks = 10) +
-  theme_classic() +
-  labs(title = "Average film runtime by year",
-       subtitle = "There seems to have been a sudden spike in average runtime in recent years",
-       y = "minutes") +
-  theme(plot.title = element_text(size = 18),
-        plot.subtitle = element_text(size = 10),
-        axis.title.x = element_blank(),
-        axis.text.y = element_text(size = 10),
-        axis.ticks.x = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.text.x = element_text(size = 10), 
-        line = element_blank())
-
-ggplotly(p)
-
-```
-<br>
-
-
-<div class = "blue">
-
-There has been a sudden spike in the average runtime these last three years.
-
-</div>
-
-
 ## Average runtime by rating
 
 <br>
@@ -935,20 +1034,20 @@ Is there a relationship between runtime and rating? Perhaps film critics favor l
 
 ```{sql connection = con, output.var = "rating_vs_runtime"}
 
-SELECT rating :: INTEGER,
-       ROUND(AVG(runtime) :: NUMERIC, 2) avg_runtime
+SELECT rating :: INTEGER "Rating",
+       ROUND(AVG(runtime) :: NUMERIC, 2) "Average runtime"
 FROM facts
 GROUP BY 1
 
 ```
 
 
-```{r}
+```{r, fig.width = 9, fig.height = 7}
 
 p <- rating_vs_runtime %>% 
-  ggplot(aes(x = rating, y = avg_runtime)) +
+  ggplot(aes(x = Rating, y = `Average runtime`)) +
   geom_col(fill = "sky blue") +
-  geom_text(aes(label = avg_runtime), nudge_y = 2) +
+  geom_text(aes(label = `Average runtime`), nudge_y = 2) +
   coord_cartesian(ylim = c(80, 120)) +
   scale_y_continuous(breaks = c(80, 120)) +
   scale_x_continuous(breaks = c(1, 8)) +
@@ -957,6 +1056,7 @@ p <- rating_vs_runtime %>%
        y = "Runtime",
        x = "Rating") +
   theme(plot.title = element_text(size = 18),
+        axis.text = element_text(size = 11),
         line = element_blank()) 
 
 ggplotly(p)
@@ -969,4 +1069,6 @@ ggplotly(p)
 Mereghetti does seem to be slightly biased in favor of longer films. 
 
 </div>
+
+
 
