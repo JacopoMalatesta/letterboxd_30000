@@ -3,7 +3,7 @@
 
 ## Steps
 
-1. <b> Asynchronously scrape </b> data on 30 000 films from the website Letterboxd with Python
+1. <b> Asynchronously scrape </b> data on 30 000 films from Letterboxd with Python
 2. Do some <b> data cleaning </b> with the Pandas library
 3. Store the data on a local <b> PostgreSQL database </b> from Python
 4. <b> Query the database </b> with SQL
@@ -55,4 +55,4 @@ library(utf8)
 
 ## Goals
 
-I hope this project may help showcase my skills in scraping, synchronous programming, multi-processing, data cleaning, programming, SQL queries and data visualization.
+I hope this project may help showcase my skills in scraping, asynchronous programming, multi-processing, data cleaning, programming, SQL queries and interactive data visualization.
