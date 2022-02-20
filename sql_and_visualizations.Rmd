@@ -52,19 +52,30 @@ con <- dbConnect(odbc(),
 
 <br>
 
-## Countries by number of films in the database
+## 1. Countries by number of films in the database
 
 What countries have produced the most films in the database?
 
+Here we need to take two important steps before calculating the total number of films for each country. First, we need to split and unnest the country column as it contains multiple values for films that were co-produced by multiple countries. Second, we are going to recode both the "Russian Federation" and "USSR" as Russia. 
+
 ```{sql connection = con, output.var = "all_countries"}
 
-SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country,
-       COUNT(*) :: INTEGER "Number of films",
-       COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM info) "Ratio"
+WITH CTE_ONE AS (
+				 SELECT UNNEST(STRING_TO_ARRAY(country, ';')) unnested_country
+				 FROM info
+				        ),
 
-FROM info
+CTE_TWO AS (
+				SELECT CASE WHEN unnested_country IN ('Russian Federation', 'USSR') THEN 'Russia' 
+		    				    ELSE unnested_country END AS country_recoded
+				FROM CTE_ONE
+			     )
+			
+SELECT country_recoded "Country",
+	   COUNT(*) :: INTEGER "Number of films"
+FROM CTE_TWO
 GROUP BY 1
-ORDER BY 2 DESC
+ORDER BY 2 DESC 
 
 ```
 
@@ -77,8 +88,7 @@ world <- map_data("world")
 
 world <- world %>% 
          rename(Country = region) %>% 
-         mutate(Country = if_else(Country == "Russia", "Russian Federation", Country)) %>% 
-         left_join(all_countries, by = c('Country' = 'country'))
+         left_join(all_countries, by = c("Country" = "Country"))
                    
 
 p <- world %>% 
@@ -98,13 +108,15 @@ ggplotly(p)
 ```
 <div class = "blue">
 
-About 82% of the films in the database had either an American, French or Italian production. This result can be chalked up to: a) Hollywood's dominance of film industry; b) Mereghetti's strong interest in French culture; c) Mereghetti's Italian nationality.
+About 82% of the films in the database had either an American, French or Italian production. 
+
+This result can be chalked up to: a) Hollywood's dominance of film industry; b) Mereghetti's strong interest in French culture; c) Mereghetti's Italian nationality.
 
 </div>
 
 <br><br>
 
-## 14. Average runtime over time
+## 2. Average runtime over time
 
 <br>
 
@@ -123,8 +135,6 @@ ORDER BY 1
 
 ```{r}
 
-avg_runtime <- avg_runtime %>% mutate_if(is.character, utf8_encode)
-
 datatable(avg_runtime, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
 
 
@@ -138,7 +148,6 @@ p <- avg_runtime %>%
   scale_y_continuous(n.breaks = 10) +
   theme_classic() +
   labs(title = "Average film runtime by year",
-       subtitle = "There seems to have been a sudden spike in average runtime in recent years",
        y = "minutes") +
   theme(plot.title = element_text(size = 18),
         plot.subtitle = element_text(size = 10),
@@ -161,7 +170,7 @@ There has been a sudden spike in the average runtime these last three years.
 
 </div>
 
-## 1. Frequency distribution of ratings
+## 3. Frequency distribution of Mereghetti's ratings
 
 <br>
 
@@ -209,7 +218,7 @@ About 60% of films fall into the lower half of Mereghetti's rating spectrum and 
 <br><br>
 
 
-## 2. Frequency of four-star rated films over time
+## 4. Frequency of Mereghetti's four-star rated films over time
 
 <br>
 
@@ -265,7 +274,7 @@ It looks like according to Mereghetti cinema peaked around the '50s and kept goi
 
 <br><br>
 
-## 3. Frequency of four-star rated films by decade
+## 5. Frequency of Mereghetti's four-star rated films by decade
 
 <br>
 
@@ -342,7 +351,7 @@ This bar chart confirms our insight: the 1950s-1960s period was the best one for
 <br><br>
 
   
-## 4. Frequency of four-star rated films by country
+## 6. Frequency of four-star rated films by country
 
 <br>
 
@@ -407,87 +416,87 @@ The US were involved in about 4 four-rated films out of 10
 
 <br><br>
 
+## 7. Frequency of four-star rated films by country over time
 
-## 5. Top 5 countries by n. of four star rated films over time
+Let's count the number of four-star rated films for each country-decade combinations (for example, French films in the '60s, Hong-Kong films in the 90s etc). For visualization's sake we'll focus only on the top 10 countries by number of four-star rated films (calculated with a dense rank).
 
-<br>
+In the first common table expression we'll calculate the frequency of 4/4 films for each country-decade combinations and in the second CTE we'll identify the top 10 countries by n. of 4/4. Finally we'll filter the first CTE by only keeping data about those top 10 countries.
 
-How did the previous frequencies evolve over time? 
-
-To answer this question we'll focus on the five countries with the most 4/4 films in the database: the US, France, Italy, Japan and the UK. Again, we'll need to split and unnest the country column. We'll also use the dense_rank function together with a window function to select those top 5 countries.
-
-```{sql connection = con, output.var = "top_five_countries"}
-
+```{sql connection = con, output.var = "decade_country_combinations"}
 WITH CTE_ONE AS (
-                            SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country, 
-                                   DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) rank
-                            FROM info
-                            JOIN facts
-                            USING(id)
-                            WHERE rating = 8
-                            GROUP BY 1
-                            ),
-    CTE_TWO AS (
-                            SELECT UNNEST(STRING_TO_ARRAY(country, ';')) country,
-                                   year,
-                                   title
-                            FROM info
-                            JOIN facts
-                            USING(id)
-                            WHERE rating = 8
-                            )
-                                   
-SELECT country, 
-       year, 
-       title,
-       CASE WHEN country = 'USA' THEN TRUE ELSE FALSE END AS is_usa
-FROM CTE_TWO
-WHERE country IN (SELECT country FROM CTE_ONE WHERE rank < 6)
-ORDER BY 1, 2
+                  SELECT CASE WHEN year >= 2020 THEN '2020s'
+                              WHEN year >= 2010 AND year < 2020 THEN '2010s'
+                              WHEN year >= 2000 AND year < 2010 THEN '2000s'
+                              WHEN year >= 1990 AND year < 2000 THEN '1990s'
+                              WHEN year >= 1980 AND year < 1990 THEN '1980s'
+                              WHEN year >= 1970 AND year < 1980 THEN '1970s'
+                              WHEN year >= 1960 AND year < 1970 THEN '1960s'
+                              WHEN year >= 1950 AND year < 1960 THEN '1950s'
+                              WHEN year >= 1940 AND year < 1950 THEN '1940s'
+                              WHEN year >= 1930 AND year < 1940 THEN '1930s'
+                              WHEN year >= 1920 AND year < 1930 THEN '1920s'
+                              WHEN year >= 1910 AND year < 1920 THEN '1910s'
+                              WHEN year >= 1900 AND year < 1910 THEN '1900s'
+                              WHEN year >= 1890 and year < 1900 THEN '1890s'
+                              ELSE 'Other' END AS "Decade",
+                         UNNEST(STRING_TO_ARRAY(country, ';')) "Country",
+                         COUNT(*) :: INTEGER "Number of films",
+                         STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
+                  FROM facts
+                  JOIN info USING(id)
+                  WHERE rating = 8
+                  GROUP BY 1, 2
+                  ),
+        
+
+     CTE_TWO AS (SELECT UNNEST(STRING_TO_ARRAY(country, ';')) "Country",
+                        DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) rank
+                 FROM facts
+                 JOIN info USING (id)
+                 WHERE rating = 8 
+                 GROUP BY 1
+                )
+              
+SELECT *
+FROM CTE_ONE
+WHERE "Country" IN (SELECT "Country" FROM CTE_TWO WHERE rank <= 10)
+ORDER BY "Number of films" DESC
+              
 
 ```
-
 
 ```{r}
+decade_country_combinations <- decade_country_combinations %>% mutate_if(is.character, utf8_encode)
 
-top_five_countries <- top_five_countries %>% mutate_if(is.character, utf8_encode)
-
-
-datatable(top_five_countries, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
-
+datatable(decade_country_combinations, rownames = FALSE, filter="top", options = list(pageLength = 2, scrollX=T))
 ```
 
-```{r, fig.height = 7, fig.width = 10}
-p <- top_five_countries %>% 
-  ggplot(aes(x = year, colour = country)) +
-  geom_freqpoly(aes(linetype = is_usa), size = .5, binwidth = 2) +
-  scale_linetype_manual(values = c("solid", "dashed"), guide = "none") +
-  scale_x_continuous(n.breaks = 10) +
+```{r, fig.width = 11, fig.height = 7.5}
+p <- decade_country_combinations %>% 
+  ggplot(aes(x = Decade, y = Country, fill = `Number of films`)) +
+  geom_tile() +
+  scale_fill_gradient(low = "light blue", high = "dark blue") +
   theme_classic() +
-  labs(title = "Frequency of four rated films by country across time") +
-  theme(plot.title = element_text(size = 18),
-        plot.subtitle = element_text(size = 12),
-        axis.title.x = element_blank(),
-        axis.title.y = element_blank(),
-        axis.text = element_text(size = 10),
-        axis.ticks = element_blank(),
-        line = element_blank()) +
-  scale_colour_brewer(palette = "Set1")
+  labs(title = "Frequency of four-star rated films by country over time") +
+  theme(axis.title = element_blank(),
+        line = element_blank(),
+        plot.title = element_text(size = 18),
+        axis.text = element_text(size = 10))
 
 ggplotly(p)
-
 ```
 <br>
 
 <div class = "blue">
 
-The US, France, Italy and Japan all reached their peak during the 1950s-1970s period
+According to Mereghetti, the US reached their peak during the later phases of the Golden Age of Hollywood (1950s) while France did so during the Nouvelle Vague (1960s)
 
 </div>
 
 <br><br>
 
-## 6. Frequency of four-star rated films by genre
+
+## 8. Frequency of four-star rated films by genre
 
 <br>
 
@@ -498,14 +507,14 @@ As a film can belong to more than one genre, we'll split and unnest the 'genre' 
 ```{sql connection = con, output.var = "four_rated_by_genre"}
 
 SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) "Genre",
-                 COUNT(*) :: INTEGER "Number of films",
-                 ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) "Ratio" 
-          FROM info
-          JOIN facts
-          USING (id)
-          WHERE rating = 8
-          GROUP BY 1
-          ORDER BY 2 DESC
+       COUNT(*) :: INTEGER "Number of films",
+       ROUND(COUNT(*) :: NUMERIC / (SELECT COUNT(*) FROM facts WHERE rating = 8), 4) "Ratio" 
+FROM info
+JOIN facts
+USING (id)
+WHERE rating = 8
+GROUP BY 1
+ORDER BY 2 DESC
 
 
 ```
@@ -551,111 +560,48 @@ ggplotly(p)
 
 <br><br>
 
-## 7. Frequency of four-star rated films by genre over time
 
-<br>
+## 9. Frequency of four-star rated films by genre over time
 
-Similarly to what we did with the 'country' variable, we are going to visualize the evolution across time of the 5 genres with the most 4-rated films. To change things up, this time we are using a LIMIT statement rather than a window function.
+```{sql connection = con, output.var = "decade_genre"}
 
-```{sql connection = con, output.var = "top_five_genres"}
-
-WITH CTE_ONE AS (SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
-                                  COUNT(*)
-                 FROM info
-                 JOIN facts
-                 USING (id)
-                 WHERE rating = 8
-                 GROUP BY 1 
-                 ORDER BY 2 DESC
-                 LIMIT 5),
-          
-     CTE_TWO AS (SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
-                        year
-                 FROM info
-                 JOIN facts
-                 USING (id)
-                 WHERE rating = 8)
-
-SELECT unnested_genre AS genre, 
-       year,
-       CASE WHEN unnested_genre = 'Drama' THEN TRUE ELSE FALSE END AS is_drama
-FROM CTE_TWO
-WHERE unnested_genre IN (SELECT unnested_genre FROM CTE_ONE)
-
-```
-
-
-
-```{r, fig.height = 7, fig.width = 10}
-
-p <- top_five_genres %>% 
-      ggplot(aes(x = year, colour = genre)) +
-      geom_freqpoly(aes(linetype = is_drama), size = .5, binwidth = 2) +
-      scale_linetype_manual(values = c("dashed", "solid"), guide = "none") +
-      scale_x_continuous(n.breaks = 10) +
-      theme_classic() +
-      labs(title = "N. of four-star rated films by genre across time",
-           subtitle = "") +
-      theme(plot.title = element_text(size = 18),
-            plot.subtitle = element_text(size = 10),
-            axis.title = element_blank(),
-            axis.text = element_text(size = 10), 
-            line = element_blank()) +
-      scale_colour_brewer(palette = "Set1")
-
-ggplotly(p)
-
-```
-<br>
-
-<div class = "blue">
-
-Comedies, thrillers and crime movies reached their peak during the 1940s while dramas and comedies did so during the 1950s.
-
-</div>
-
-
-
-<br><br>
-
-# Most common country-genre combinations?
-
-What are the most common country-genre combinations with rating = 8?
-
-```{sql connection=con, output.var = "country_genre"}
-
-WITH CTE AS ( SELECT UNNEST(STRING_TO_ARRAY(country, ';')) "Country",
-                     UNNEST(STRING_TO_ARRAY(genre, ';')) "Genre",
-                     COUNT(*),
-                     STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
-FROM info
-JOIN facts USING (id)
+SELECT CASE WHEN year >= 2020 THEN '2020s'
+            WHEN year >= 2010 AND year < 2020 THEN '2010s'
+            WHEN year >= 2000 AND year < 2010 THEN '2000s'
+            WHEN year >= 1990 AND year < 2000 THEN '1990s'
+            WHEN year >= 1980 AND year < 1990 THEN '1980s'
+            WHEN year >= 1970 AND year < 1980 THEN '1970s'
+            WHEN year >= 1960 AND year < 1970 THEN '1960s'
+            WHEN year >= 1950 AND year < 1960 THEN '1950s'
+            WHEN year >= 1940 AND year < 1950 THEN '1940s'
+            WHEN year >= 1930 AND year < 1940 THEN '1930s'
+            WHEN year >= 1920 AND year < 1930 THEN '1920s'
+            WHEN year >= 1910 AND year < 1920 THEN '1910s'
+            WHEN year >= 1900 AND year < 1910 THEN '1900s'
+            WHEN year >= 1890 and year < 1900 THEN '1890s'
+            ELSE 'Other' END AS "Decade",
+       UNNEST(STRING_TO_ARRAY(genre, ';')) "Genre",
+       COUNT(*) :: INTEGER "Number of films"
+FROM facts
+JOIN info USING (id)
 WHERE rating = 8
 GROUP BY 1, 2
-ORDER BY 3 DESC )
-
-SELECT "Country", "Genre", count :: INTEGER "Number of films", "Titles"
-FROM CTE
-WHERE "Country" IS NOT NULL AND "Genre" IS NOT NULL
-LIMIT 30
+ORDER BY 3 DESC
 
 ```
+
 
 ```{r}
-country_genre <- country_genre %>% mutate_if(is.character, utf8_encode)
+datatable(decade_genre, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
 
-datatable(country_genre, rownames = FALSE, filter="top", options = list(pageLength = 1, scrollX=T))
 ```
-
-
-
-```{r, fig.width = 9, fig.height = 7}
-p <- country_genre %>% 
-  ggplot(aes(x = Country, y = Genre, fill = `Number of films`)) +
+```{r, fig.width = 11, fig.height = 7.5}
+p <- decade_genre %>% 
+  ggplot(aes(x = Decade, y = Genre, fill = `Number of films`)) +
   geom_tile() +
-  scale_fill_gradient(low = "light blue", high = "dark blue", na.value = "white") +
+  scale_fill_gradient(low = "light blue", high = "dark blue") +
   theme_classic() +
-  labs(title = "Most common country-genre combinations for four-star rated films") +
+  labs(title = "N. of four-star rated films by genre over time") +
   theme(axis.title = element_blank(),
         line = element_blank(),
         plot.title = element_text(size = 18),
@@ -664,8 +610,9 @@ p <- country_genre %>%
 ggplotly(p)
 
 ```
+<br><br>
 
-## 8. Directors with most four-star-rated films
+## 10. Directors with most four-star-rated films
 
 <br>
 
@@ -675,18 +622,21 @@ Once again splitting and unnesting will come to our rescue.
 
 ```{sql connection = con, output.var = "four_rated_by_director"}
 
-SELECT UNNEST(STRING_TO_ARRAY(director, ';')) director,
-       COUNT(*) :: INTEGER,
-       STRING_AGG(title || ' (' || year || ')', ' | ') titles
-FROM facts
-JOIN people
-USING (id)
-JOIN info
-USING (id)
-WHERE rating = 8
-GROUP BY 1 
-ORDER BY 2 DESC
-LIMIT 25
+WITH CTE AS (
+              SELECT UNNEST(STRING_TO_ARRAY(director, ';')) "Director",
+                     DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) "Rank",
+                     COUNT(*) :: INTEGER "Number of films",
+                     STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
+              FROM facts
+              JOIN info USING(id)
+              JOIN people USING(id)
+              WHERE rating = 8
+              GROUP BY 1
+) 
+
+SELECT *
+FROM CTE
+WHERE "Rank" < 6
 
 ```
 
@@ -697,12 +647,12 @@ four_rated_by_director <- four_rated_by_director %>% mutate_if(is.character, utf
 
 datatable(four_rated_by_director, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
   
-```
+``` 
 ```{r, fig.height = 7, fig.width = 10}
 
 p <- four_rated_by_director %>% 
-  mutate(director = fct_reorder(director, count)) %>% 
-  ggplot(aes(x = count, y = director, fill = count)) +
+  mutate(Director = fct_reorder(Director, `Number of films`)) %>% 
+  ggplot(aes(x = `Number of films`, y = Director, fill = `Number of films`)) +
   geom_col() +
   theme_classic() +
   scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none") +
@@ -728,130 +678,26 @@ All directors except Allen, Lynch, Scorsese and Eastwood have passed away
 
 <br><br>
   
-
-## 9. Directors with most four-star-rated films by decade
-
-<br>
-
-Let's find out who the director with most 4/4 films in each decade is.
-
-```{sql connection=con, output.var = "directors_by_decade"}
-
-WITH CTE_ONE AS (SELECT CASE WHEN year >= 2020 THEN '2020s'
-                             WHEN year >= 2010 AND year < 2020 THEN '2010s'
-                             WHEN year >= 2000 AND year < 2010 THEN '2000s'
-                             WHEN year >= 1990 AND year < 2000 THEN '1990s'
-                             WHEN year >= 1980 AND year < 1990 THEN '1980s'
-                             WHEN year >= 1970 AND year < 1980 THEN '1970s'
-                             WHEN year >= 1960 AND year < 1970 THEN '1960s'
-                             WHEN year >= 1950 AND year < 1960 THEN '1950s'
-                             WHEN year >= 1940 AND year < 1950 THEN '1940s'
-                             WHEN year >= 1930 AND year < 1940 THEN '1930s'
-                             WHEN year >= 1920 AND year < 1930 THEN '1920s'
-                             WHEN year >= 1910 AND year < 1920 THEN '1910s'
-                             WHEN year >= 1900 AND year < 1910 THEN '1900s'
-                             WHEN year >= 1890 and year < 1900 THEN '1890s'
-                             ELSE 'Other' END AS decade,
-                         UNNEST(STRING_TO_ARRAY(director, ';')) director,
-                         COUNT(*) n_of_films,
-                         STRING_AGG(title || ' (' || year || ')', ' | ') titles
-		             FROM facts
-		             JOIN people 
-		             USING(id)
-		             JOIN info
-		             USING (id)
-                 WHERE rating = 8
-                 GROUP BY 1, 2),
-
-      CTE_TWO AS (SELECT decade, MAX(n_of_films) n_of_films FROM CTE_ONE GROUP BY 1)
-
-SELECT CTE_ONE.decade, CTE_ONE.director, CTE_ONE.n_of_films :: INTEGER, CTE_ONE.titles
-FROM CTE_ONE
-JOIN CTE_TWO
-ON CTE_ONE.decade = CTE_TWO.decade AND CTE_ONE.n_of_films = CTE_TWO.n_of_films
-ORDER BY CTE_ONE.decade
-
-```
-
-
-```{r}
-
-directors_by_decade <- directors_by_decade %>% mutate_if(is.character, utf8_encode)
-
-datatable(directors_by_decade, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
-
-```
-
-
-<br><br>
-
-## 10. Directors with most four-star-rated films by genre
-
-<br>
-
-Similarly to what we did with 'decade', we are going to find out who the directors with most 4/4 films are for each single genre. To limit the rows in the final output table we are focusing on genres with a count equal to or greater than two.
-
-```{sql connection = con, output.var = "top_directors_by_genre"}
-
-WITH CTE_ONE AS (
-                           SELECT UNNEST(STRING_TO_ARRAY(genre, ';')) unnested_genre,
-                                  UNNEST(STRING_TO_ARRAY(director, ';')) unnested_director,
-                                  COUNT(*) :: INTEGER,
-                                  STRING_AGG(title || ' (' || year || ')', ' | ') titles
-                           FROM facts
-                           JOIN people USING(id)
-                           JOIN info USING(id)
-                           WHERE rating = 8
-                           GROUP BY 1, 2
-                           ),
-                           
-    CTE_TWO AS (SELECT unnested_genre,
-                       MAX(count) n_of_films
-                 FROM CTE_ONE
-                 WHERE unnested_director IS NOT NULL
-                 GROUP BY 1
-                 HAVING MAX(count) > 1)
-                            
-SELECT CTE_ONE.unnested_genre genre,
-       CTE_ONE.unnested_director director,
-       CTE_TWO.n_of_films,
-       CTE_ONE.titles
-FROM CTE_ONE
-JOIN CTE_TWO
-ON CTE_ONE.unnested_genre = CTE_TWO.unnested_genre AND CTE_ONE.count = CTE_TWO.n_of_films
-ORDER BY 1
-
-```
-
-
-```{r}
-
-top_directors_by_genre <- top_directors_by_genre %>% mutate_if(is.character, utf8_encode)
-
-datatable(top_directors_by_genre, rownames = FALSE, filter="top", options = list(pageLength = 5, scrollX=T))
-
-```
-<br><br>
-
-
 ## 11. Actors with most film credits in four-star-rated-films
 
 <br>
 
 ```{sql connection=con, output.var = "top_actors"}
 
-SELECT UNNEST(STRING_TO_ARRAY(actors, ';')) actor,
-       COUNT(*) :: INTEGER,
-       STRING_AGG(title || ' (' || year || ')', ' | ') titles
-FROM facts
-JOIN people
-USING(id)
-JOIN info
-USING(id)
-WHERE rating = 8
-GROUP BY 1
-ORDER BY 2 DESC
-LIMIT 20
+WITH CTE AS ( SELECT UNNEST(STRING_TO_ARRAY(actors, ';')) "Actor",
+                     DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) "Rank",
+                     COUNT(*) :: INTEGER "Number of films",
+                     STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
+              FROM facts
+              JOIN info USING(id)
+              JOIN people USING(id)
+              WHERE rating = 8
+              GROUP BY 1
+              )
+              
+SELECT * 
+FROM CTE
+WHERE "Rank" < 7
 
 ```
 
@@ -867,11 +713,10 @@ datatable(top_actors, rownames = FALSE, filter="top", options = list(pageLength 
 
 ```{r, fig.width = 10}
 p <- top_actors %>% 
-  mutate(actor = fct_reorder(actor, count)) %>% 
-  ggplot(aes(x = count, 
-             y = actor)) +
-  geom_col(aes(fill = count)) +
-  #geom_text(aes(label = count), size = 3.25, nudge_x = .5) +
+  mutate(Actor = fct_reorder(Actor, `Number of films`)) %>% 
+  ggplot(aes(x = `Number of films`, 
+             y = Actor)) +
+  geom_col(aes(fill = `Number of films`)) +
   theme_classic() +
   scale_x_continuous(breaks = c(0, 8, 15)) +
   scale_fill_gradient(low = "light blue", high = "dark blue", guide = "none") +
@@ -904,18 +749,20 @@ Is Ennio Morricone going to top the list of composers with most credits in 4/4 f
 
 ```{sql connection = con, output.var = "top_composers"}
 
-SELECT UNNEST(STRING_TO_ARRAY(composer, ';')) composer,
-       COUNT(*) :: INTEGER,
-       STRING_AGG(title || ' (' || year || ')', ' | ') titles
-FROM facts
-JOIN people
-USING(id)
-JOIN info
-USING(id)
-WHERE rating = 8
-GROUP BY 1
-ORDER BY 2 DESC
-LIMIT 20
+WITH CTE AS ( SELECT UNNEST(STRING_TO_ARRAY(composer, ';')) "Composer",
+                     DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) "Rank",
+                     COUNT(*) :: INTEGER "Number of films",
+                     STRING_AGG(title || ' (' || year || ')', ' | ') "Titles"
+               FROM facts 
+               JOIN info USING(id)
+               JOIN people USING(id)
+               WHERE rating = 8
+               GROUP BY 1
+               )
+
+SELECT *
+FROM CTE
+WHERE "Rank" < 6
 
 ```
 
@@ -929,15 +776,14 @@ datatable(top_composers, rownames = FALSE, filter="top", options = list(pageLeng
 
 ```{r, fig.width = 10}
 p <- top_composers %>% 
-  mutate(composer = fct_reorder(composer, count)) %>% 
-  ggplot(aes(x = count, 
-             y = composer, 
-             fill = count)) +
+  mutate(Composer = fct_reorder(Composer, `Number of films`)) %>% 
+  ggplot(aes(y = Composer,
+             x = `Number of films`, 
+             fill = `Number of films`)) +
   geom_col() +
   theme_classic() +
   scale_x_continuous(breaks = c(0, 4, 8)) +
-  labs(title = "Composers with most film credits in four-star-rated films",
-       subtitle = "Nino Rota scored most of Federico Fellini's films") +
+  labs(title = "Composers with most film credits in four-star-rated films") +
   theme(plot.title = element_text(size = 18),
         plot.subtitle = element_text(size = 10),
         legend.position = "None",
@@ -953,6 +799,8 @@ ggplotly(p)
 
 ```
 <div class="blue">
+
+Nino Rota scored most of Federico Fellini's films.
 
 These aren't necessarily Paolo Mereghetti's favorite composers. They're simply the composers who show up most frequenly among the films he awarded his highest score.
 
@@ -977,13 +825,19 @@ SELECT UNNEST(ARRAY[director, actors, producers, writer, editor, cinematographer
 FROM facts
 JOIN people
 USING(id)
-WHERE rating = 8)
+WHERE rating = 8),
 
-SELECT UNNEST(STRING_TO_ARRAY(artists, ';')) artist, COUNT(*) :: INTEGER
-FROM CTE
-GROUP BY 1
-ORDER BY 2 DESC
-LIMIT 20
+CTE_TWO AS (
+            SELECT UNNEST(STRING_TO_ARRAY(artists, ';')) "Artist", 
+                   DENSE_RANK() OVER(ORDER BY COUNT(*) DESC) "Rank",
+                   COUNT(*) :: INTEGER "Number of films"
+            FROM CTE
+            GROUP BY 1
+            )
+            
+SELECT *
+FROM CTE_TWO
+WHERE "Rank" < 11
 
 ```
 
@@ -998,11 +852,11 @@ datatable(top_artists, rownames = FALSE, filter="top", options = list(pageLength
 
 ```{r, fig.width = 10}
 p <- top_artists %>% 
-  mutate(artist = fct_reorder(artist, count)) %>% 
+  mutate(Artist = fct_reorder(Artist, `Number of films`)) %>% 
   mutate_if(is.character, utf8_encode) %>% 
-  ggplot(aes(x = artist, 
-             y = count, 
-             fill = count)) +
+  ggplot(aes(x = Artist, 
+             y = `Number of films`, 
+             fill = `Number of films`)) +
   geom_col() +
   coord_flip() +
   theme_classic() +
@@ -1024,8 +878,16 @@ ggplotly(p)
 
 <br><br>
 
+<div class="blue">
 
-## Average runtime by rating
+Chaplin was jack of all trades: he produced, wrote, directed, edited, scored and starred in his films.
+
+</div>
+
+<br><br>
+
+
+## 14. Average runtime by rating
 
 <br>
 
@@ -1042,7 +904,7 @@ GROUP BY 1
 ```
 
 
-```{r, fig.width = 9, fig.height = 7}
+```{r, fig.width = 9, fig.height = 6}
 
 p <- rating_vs_runtime %>% 
   ggplot(aes(x = Rating, y = `Average runtime`)) +
